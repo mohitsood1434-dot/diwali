@@ -45,6 +45,8 @@ button.ghost{background:transparent;color:#ffcf80;border:1.5px solid rgba(255,19
 #bottom .tap{margin-top:8px;font-size:12px;color:#8f7458;letter-spacing:1px}
 #bottom{position:fixed;left:0;right:0;bottom:calc(3vh + env(safe-area-inset-bottom,0px));text-align:center;transition:opacity .9s}
 #final{justify-content:flex-start;padding-top:calc(10vh + env(safe-area-inset-top,0px))}
+#snd{position:fixed;right:14px;top:calc(14px + env(safe-area-inset-top,0px));width:44px;height:44px;margin:0;padding:0;border-radius:50%;font-size:20px;line-height:44px;
+ background:rgba(255,190,90,.12);border:1px solid rgba(255,190,90,.4);box-shadow:none;color:#ffd27a;z-index:5;display:none}
 </style>
 </head>
 <body>
@@ -52,6 +54,7 @@ button.ghost{background:transparent;color:#ffcf80;border:1.5px solid rgba(255,19
 <div id="warm"></div>
 <canvas id="rg"></canvas>
 <canvas id="fx"></canvas>
+<button id="snd" aria-label="Music on/off">🔊</button>
 
 <!-- 1. Intro -->
 <div class="screen" id="intro">
@@ -93,11 +96,45 @@ const NOTES=[523.25,587.33,659.25,783.99,880,1046.5,1174.7,1318.5,1568];
 function chime(i){const a=ac();if(!a)return;const t=a.currentTime;
  [1,2.01].forEach((m,k)=>{const o=a.createOscillator(),g=a.createGain();o.type='sine';o.frequency.value=NOTES[i%9]*m;
  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(k?0.05:0.18,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+1.6);
- o.connect(g).connect(a.destination);o.start(t);o.stop(t+1.7)})}
+ o.connect(g).connect(MG||a.destination);o.start(t);o.stop(t+1.7)})}
 function boom(){const a=ac();if(!a)return;const t=a.currentTime,n=a.sampleRate*.8,buf=a.createBuffer(1,n,a.sampleRate),d=buf.getChannelData(0);
  for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3);
  const s=a.createBufferSource(),f=a.createBiquadFilter(),g=a.createGain();s.buffer=buf;f.type='lowpass';f.frequency.value=600+Math.random()*500;g.gain.value=.35;
- s.connect(f).connect(g).connect(a.destination);s.start(t)}
+ s.connect(f).connect(g).connect(MG||a.destination);s.start(t)}
+
+// ---------- music ----------
+let MG=null,musicOn=true,step=0,nextT=0,timer=null,festive=false;
+const SA=130.81; // Sa = C3
+const R2=r=>SA*Math.pow(2,r/12);
+// raag-like phrase (Sa Re Ga Pa Dha Sa'), 32 steps
+const MEL=[12,null,16,null,19,null,16,14,12,null,9,null,7,null,null,null,
+           9,null,12,null,14,null,16,null,19,null,21,19,16,null,14,null];
+function unlockIOS(){try{if(navigator.audioSession)navigator.audioSession.type='playback'}catch(e){}
+ try{const a=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');a.play().catch(()=>{})}catch(e){}}
+function startMusic(){const a=ac();if(!a||MG)return;
+ MG=a.createGain();MG.gain.setValueAtTime(0,a.currentTime);MG.gain.linearRampToValueAtTime(musicOn?.9:0,a.currentTime+2);MG.connect(a.destination);
+ // tanpura-style drone
+ const lp=a.createBiquadFilter();lp.type='lowpass';lp.frequency.value=700;lp.Q.value=4;
+ const lfo=a.createOscillator(),lg=a.createGain();lfo.frequency.value=.12;lg.gain.value=350;lfo.connect(lg).connect(lp.frequency);lfo.start();
+ const dg=a.createGain();dg.gain.value=.045;lp.connect(dg).connect(MG);
+ [[SA/2*1.5,0],[SA,0],[SA,4],[SA/2,-3]].forEach(([f,det])=>{const o=a.createOscillator();o.type='sawtooth';o.frequency.value=f;o.detune.value=det;o.connect(lp);o.start()});
+ nextT=a.currentTime+.3;timer=setInterval(sched,90)}
+function pluck(t,f,v){const a=AC;const o=a.createOscillator(),o2=a.createOscillator(),g=a.createGain(),f1=a.createBiquadFilter();
+ o.type='triangle';o2.type='sawtooth';o.frequency.setValueAtTime(f*1.01,t);o.frequency.exponentialRampToValueAtTime(f,t+.06);o2.frequency.value=f*2;
+ f1.type='lowpass';f1.frequency.setValueAtTime(3500,t);f1.frequency.exponentialRampToValueAtTime(600,t+.8);
+ const g2=a.createGain();g2.gain.value=.25;o2.connect(g2).connect(f1);o.connect(f1);f1.connect(g).connect(MG);
+ g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+.008);g.gain.exponentialRampToValueAtTime(.0001,t+1.4);
+ o.start(t);o2.start(t);o.stop(t+1.5);o2.stop(t+1.5)}
+function dhol(t,low){const a=AC;const o=a.createOscillator(),g=a.createGain();o.type='sine';
+ o.frequency.setValueAtTime(low?140:320,t);o.frequency.exponentialRampToValueAtTime(low?55:180,t+.18);
+ g.gain.setValueAtTime(low?.55:.22,t);g.gain.exponentialRampToValueAtTime(.0001,t+(low?.4:.15));o.connect(g).connect(MG);o.start(t);o.stop(t+.45)}
+function sched(){const a=AC;const SP=.32;
+ while(nextT<a.currentTime+.35){const i=step%32,n=MEL[i];
+  if(n!==null)pluck(nextT,R2(n),.16);
+  if(i%8===0)pluck(nextT,R2(0),.07);
+  if(festive){if(i%8===0||i%8===5)dhol(nextT,true);if(i%8===2||i%8===4||i%8===7)dhol(nextT,false)}
+  step++;nextT+=SP}}
+function setMusic(on){musicOn=on;$('snd').textContent=on?'🔊':'🔇';if(MG)MG.gain.setTargetAtTime(on?.9:0,AC.currentTime,.3)}
 // ---------- diyas ----------
 const SVG=`<svg viewBox="0 0 100 100"><defs>
 <radialGradient id="h" cx="50%" cy="45%" r="50%"><stop offset="0" stop-color="#ffcf6b" stop-opacity=".8"/><stop offset=".5" stop-color="#ff8a1e" stop-opacity=".25"/><stop offset="1" stop-color="#ff6a00" stop-opacity="0"/></radialGradient>
@@ -155,17 +192,18 @@ requestAnimationFrame(loop);
 let NAME='';
 function cleanName(s){return s.replace(/[<>]/g,'').trim().slice(0,24)}
 try{const h=decodeURIComponent(location.hash.slice(1)).replace(/-/g,' ');if(h)$('name').value=cleanName(h)}catch(e){}
-$('go').onclick=()=>{ac();NAME=cleanName($('name').value);$('intro').classList.add('hide');
+$('go').onclick=()=>{unlockIOS();ac();startMusic();$('snd').style.display='block';NAME=cleanName($('name').value);$('intro').classList.add('hide');
  setTimeout(()=>{$('ring').classList.remove('hide');$('hint').classList.remove('hide')},500)};
+$('snd').onclick=e=>{e.stopPropagation();ac();setMusic(!musicOn)};
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter')$('go').click()});
-function finale(){$('hint').classList.add('hide');$('warm').style.opacity=1;animRangoli();
+function finale(){festive=true;$('hint').classList.add('hide');$('warm').style.opacity=1;animRangoli();
  diyas.forEach(d=>{d.style.transition='opacity 1.5s';d.style.opacity=.9});
  const who=NAME?`<b>${NAME.replace(/&/g,'&amp;')} ji</b>, `:'';
  $('wish').innerHTML=`${who}${NAME?"jaise":"Jaise"} aapne abhi andhere mein 9 diye jalaaye — waise hi aapki zindagi mein khushiyan, sehat aur safalta ki roshni hamesha bani rahe.`;
  setTimeout(()=>{$('final').classList.remove('hide');$('bottom').classList.remove('hide')},900);
  let k=0;const show=()=>{rocket(W*(.15+Math.random()*.7),H*(.12+Math.random()*.3));if(++k<10)auto=setTimeout(show,450+Math.random()*400)};show()}
 document.addEventListener('click',e=>{if(lit===9&&!e.target.closest('button')){ac();rocket(e.clientX,Math.min(e.clientY,H*.6))}});
-$('again').onclick=e=>{e.stopPropagation();clearTimeout(auto);lit=0;rangoliT=0;R.clearRect(0,0,W,H);$('warm').style.opacity=0;$('final').classList.add('hide');$('bottom').classList.add('hide');
+$('again').onclick=e=>{e.stopPropagation();festive=false;clearTimeout(auto);lit=0;rangoliT=0;R.clearRect(0,0,W,H);$('warm').style.opacity=0;$('final').classList.add('hide');$('bottom').classList.add('hide');
  diyas.forEach(d=>{d.classList.remove('lit','wait');d.style.opacity=1});$('count').textContent='0 / 9';
  $('hint').querySelector('.t').textContent='Andhera hai… har diye ko tap karke jalao';setTimeout(()=>$('hint').classList.remove('hide'),600)};
 addEventListener('resize',size);size();
